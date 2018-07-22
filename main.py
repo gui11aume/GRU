@@ -211,10 +211,10 @@ class GRULayer:
       self.h  = self.h[-1:]
       self.y  = list()
 
-      return dx
+      return list(reversed(dx))
 
 
-   def update(self, learning_rate=0.1):
+   def update(self, learning_rate=0.01):
       # Update model with adagrad (stochastic) gradient descent
       plist = [self.Wy, self.Wh, self.Wr, self.Wz, self.Uh,
             self.Ur, self.Uz, self.by, self.bh, self.br, self.bz]
@@ -230,17 +230,19 @@ class GRULayer:
       return
 
 
-def sample(RNN, x):
+def sample(G1, G2, x):
    charidx = list()
-   intlstate = RNN.get_state()
+   init1 = G1.get_state()
+   init2 = G2.get_state()
    for t in range(1000):
-      p = softmax.fn(RNN.forward(x))
+      p = softmax.fn(G2.forward(G1.forward(x)))
       # Choose next char according to the distribution
       idx = np.random.choice(range(len(x)), p=p.ravel())
       x = np.zeros_like(x)
       x[idx] = 1
       charidx.append(idx)
-   RNN.set_state(intlstate)
+   G1.set_state(init1)
+   G2.set_state(init2)
    return charidx
 
 
@@ -259,8 +261,8 @@ def main(fname):
    char_to_idx = { ch:i for i,ch in enumerate(alphabet) }
    idx_to_char = { i:ch for i,ch in enumerate(alphabet) }
 
-   hsz = sigma
-   G = GRULayer(sigma, hsz, sigma)
+   G1 = GRULayer(sigma, sigma, sigma)
+   G2 = GRULayer(sigma, sigma, sigma)
 
    seq_length = 25
    Si = range(seq_length)
@@ -280,10 +282,12 @@ def main(fname):
       for i in range(p, p+seq_length):
          seq.append(onehot(sigma, char_to_idx[txt[i]]))
 
-      out =  [G.forward(seq[i]) for i in Si]
-      losses = sum([loss.fn(out[i], seq[i+1]) for i in Si])
-      G.backprop([loss.dx(out[i], seq[i+1]) for i in Si])
-      G.update()
+      oG1 = [softmax.fn(G1.forward(seq[i])) for i in Si]
+      oG2 = [G2.forward(oG1[i]) for i in Si]
+      gG2 = G2.backprop([loss.dx(oG2[i], seq[i+1]) for i in Si])
+      gG1 = G1.backprop(gG2)
+      G1.update()
+      G2.update()
 
       # Keep last character for next round.
       seq = seq[-1:]
@@ -291,7 +295,7 @@ def main(fname):
       if n % print_interval == 0:
          x = np.zeros(sigma)
          x[np.random.randint(sigma) % sigma] = 1
-         stxt = sample(G, x)
+         stxt = sample(G1, G2, x)
          print ''.join([idx_to_char[x] for x in stxt])
 
       # Prepare for next iteration
