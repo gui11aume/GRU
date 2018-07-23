@@ -23,6 +23,13 @@ class softmax:
    def fn(x):
       e = np.exp(x - np.max(x))
       return e / e.sum()
+   @staticmethod
+   def df(x):
+      # TODO: test this bit (it may not be correct).
+      n = len(x)
+      M1 = np.repeat(x,n).reshape(n,n)
+      M2 = np.diag(1-2*np.diag(M1)) + M1
+      return np.multiply(M2, M1.T)
 
 class sigmoid:
    @staticmethod
@@ -214,14 +221,15 @@ class GRULayer:
       return list(reversed(dx))
 
 
-   def update(self, learning_rate=0.01):
+   # TODO: write this is a cleaner way.
+   def update(self, learning_rate=0.02):
       # Update model with adagrad (stochastic) gradient descent
       plist = [self.Wy, self.Wh, self.Wr, self.Wz, self.Uh,
-            self.Ur, self.Uz, self.by, self.bh, self.br, self.bz]
+         self.Ur, self.Uz, self.by, self.bh, self.br, self.bz]
       dlist = [self.dWy, self.dWh, self.dWr, self.dWz, self.dUh,
-            self.dUr, self.dUz, self.dby, self.dbh, self.dbr, self.dbz]
+         self.dUr, self.dUz, self.dby, self.dbh, self.dbr, self.dbz]
       mlist = [self.mdWy, self.mdWh, self.mdWr, self.mdWz, self.mdUh,
-            self.mdUr, self.mdUz, self.mdby, self.mdbh, self.mdbr, self.mdbz]
+         self.mdUr, self.mdUz, self.mdby, self.mdbh, self.mdbr, self.mdbz]
       for i in range(len(plist)):
           np.clip(dlist[i], -5, 5, out=dlist[i])
           mlist[i] += dlist[i] * dlist[i]
@@ -235,8 +243,11 @@ def sample(G1, G2, x):
    init1 = G1.get_state()
    init2 = G2.get_state()
    for t in range(1000):
-      p = softmax.fn(G2.forward(G1.forward(x)))
+      # Two-layer version.
+      #p = softmax.fn(G2.forward(G1.forward(x)))
+      # One-layer version.
       # Choose next char according to the distribution
+      p = softmax.fn(G1.forward(x))
       idx = np.random.choice(range(len(x)), p=p.ravel())
       x = np.zeros_like(x)
       x[idx] = 1
@@ -281,22 +292,33 @@ def main(fname):
       # Get input and target sequence
       for i in range(p, p+seq_length):
          seq.append(onehot(sigma, char_to_idx[txt[i]]))
-
-      oG1 = [softmax.fn(G1.forward(seq[i])) for i in Si]
-      oG2 = [G2.forward(oG1[i]) for i in Si]
-      gG2 = G2.backprop([loss.dx(oG2[i], seq[i+1]) for i in Si])
-      gG1 = G1.backprop(gG2)
+      
+      # One-layer version.
+      oG1 = [G1.forward(seq[i]) for i in Si]
+      dG1 = G1.backprop([loss.dx(oG1[i], seq[i+1]) for i in Si])
       G1.update()
-      G2.update()
 
-      # Keep last character for next round.
-      seq = seq[-1:]
+      # Two-layer version.
+      #oG1 = [G1.forward(seq[i]) for i in Si]
+      #oG2 = [G2.forward(oG1[i]) for i in Si]
+      #dG2 = G2.backprop([loss.dx(oG2[i], seq[i+1]) for i in Si])
+      #dG1 = G1.backprop(dG2)
+      #G1.update()
+      #G2.update()
 
       if n % print_interval == 0:
+         # Two-layer version.
+         #losses = sum([loss.fn(oG2[i], seq[i+1]) for i in Si])
+         # One-layer version.
+         losses = sum([loss.fn(oG1[i], seq[i+1]) for i in Si])
+         print '\niteration: %d, loss: %f\n' % (n, losses)
          x = np.zeros(sigma)
          x[np.random.randint(sigma) % sigma] = 1
          stxt = sample(G1, G2, x)
          print ''.join([idx_to_char[x] for x in stxt])
+
+      # Keep last character for next round.
+      seq = seq[-1:]
 
       # Prepare for next iteration
       p += seq_length
